@@ -1,0 +1,97 @@
+import pandas as pd
+
+#显示所有列
+pd.set_option('display.max_columns', None)
+#显示所有行
+pd.set_option('display.max_rows',None)
+
+# 数据加载
+train = pd.read_csv(r"C:\Users\86181\数据集\保险反欺诈\train.csv")
+test = pd.read_csv(r"C:\Users\86181\数据集\保险反欺诈\test.csv")
+# 合并train, test
+data = pd.concat([train, test], axis=0)
+data.index = range(len(data))
+# 数据探索
+data.isnull().sum()
+
+cat_columns = data.select_dtypes(include='O').columns
+column_name = []
+unique_value = []
+for col in cat_columns:
+    #print(col, data[col].nunique())
+    column_name.append(col)
+    unique_value.append(data[col].nunique())
+
+df = pd.DataFrame()
+df['col_name'] = column_name
+df['value'] = unique_value
+df = df.sort_values('value', ascending=False)
+# 单独看某个字段
+data['property_damage'].value_counts()
+data['property_damage'] = data['property_damage'].map({'NO': 0, 'YES': 1, '?': 2})
+data['property_damage'].value_counts()
+data['police_report_available'].value_counts()
+data['police_report_available'] = data['police_report_available'].map({'NO': 0, 'YES': 1, '?': 2})
+data['police_report_available'].value_counts()
+#对日期处理
+# policy_bind_date, incident_date
+data['policy_bind_date'] = pd.to_datetime(data['policy_bind_date'])
+data['incident_date'] = pd.to_datetime(data['incident_date'])
+
+# 查看最大日期，最小日期
+data['policy_bind_date'].min() # 1990-01-08
+data['policy_bind_date'].max() # 2015-02-22
+
+data['incident_date'].min() # 2015-01-01
+data['incident_date'].max() # 2015-03-01
+base_date = data['policy_bind_date'].min()
+# 转换为date_diff
+data['policy_bind_date_diff'] = (data['policy_bind_date'] - base_date).dt.days
+data['incident_date_diff'] = (data['incident_date'] - base_date).dt.days
+data['incident_date_policy_bind_date_diff'] = data['incident_date_diff'] - data['policy_bind_date_diff']
+# 去掉原始日期字段 policy_bind_date	incident_date
+data.drop(['policy_bind_date', 'incident_date'], axis=1, inplace=True)
+#data['policy_id'].value_counts()
+data.drop(['policy_id'], axis=1, inplace=True)
+## 标签编码
+from sklearn.preprocessing import LabelEncoder
+cat_columns = data.select_dtypes(include='O').columns
+for col in cat_columns:
+    le = LabelEncoder()
+    data[col] = le.fit_transform(data[col])
+# 数据集切分
+train = data[data['fraud'].notnull()]
+y=train['fraud']
+train=train.drop(['fraud'],axis=1)
+test = data[data['fraud'].isnull()]
+
+
+from tensorflow.keras import Sequential
+from tensorflow.keras.layers import Dropout
+from tensorflow.keras.layers import Dense
+from tensorflow.keras.layers import Activation
+from tensorflow.keras.optimizers import Adam
+model=Sequential()
+input=train.shape[1]
+# 隐藏层128
+model.add(Dense(128, input_shape=(input,)))  #
+model.add(Activation('relu'))
+# Dropout层用于防止过拟合
+model.add(Dropout(0.2))
+# 隐藏层64
+model.add(Dense(64))
+model.add(Activation('relu'))
+model.add(Dropout(0.2))
+model.add(Dense(1, activation='sigmoid'))
+model.compile(optimizer='adam', loss='binary_crossentropy',  metrics=['accuracy'])
+
+# 训练
+#epochs: 整数。训练模型迭代轮次
+#verbose: 0, 1 或 2。日志显示模式。 0 = 安静模式, 1 = 进度条, 2 = 每轮一行。
+#batch_size: 整数或 None。每次提度更新的样本数。如果未指定，默认为 32.
+#
+model.fit(train,y,epochs=100, batch_size=20,verbose=2,shuffle=True)
+predictions = model.predict_proba(test.drop(['fraud'], axis=1))
+result = pd.read_csv(r"C:\Users\86181\数据集\保险反欺诈\submission.csv")
+result['fraud']=predictions
+result.to_csv(r"C:\Users\86181\数据集\保险反欺诈\submission.csv", index=False)
